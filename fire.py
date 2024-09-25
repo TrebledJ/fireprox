@@ -148,7 +148,7 @@ class FireProx(object):
           ],
           "paths": {
             "/": {
-              "get": {
+              "x-amazon-apigateway-any-method": {
                 "parameters": [
                   {
                     "name": "proxy",
@@ -187,9 +187,6 @@ class FireProx(object):
             },
             "/{proxy+}": {
               "x-amazon-apigateway-any-method": {
-                "produces": [
-                  "application/json"
-                ],
                 "parameters": [
                   {
                     "name": "proxy",
@@ -218,7 +215,7 @@ class FireProx(object):
                   },
                   "passthroughBehavior": "when_no_match",
                   "httpMethod": "ANY",
-                  "cacheNamespace": "irx7tm",
+                  "cacheNamespace": "19gna3",
                   "cacheKeyParameters": [
                     "method.request.path.proxy"
                   ],

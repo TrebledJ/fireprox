@@ -1006,3 +1006,5 @@ Inodes
 worriedness
 outdraft
 squandermania""".splitlines()
+
+RANDOM_WORDS = [x.strip().lower() for x in RANDOM_WORDS]

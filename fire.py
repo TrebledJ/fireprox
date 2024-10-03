@@ -588,7 +588,7 @@ def main():
         INTEGRATIONS_PER_URL = 4 # This is the number of integration we define per url.
         
         num_urls = len(urls)
-        max_urls = ceil(API_GATEWAY_LIMIT / INTEGRATIONS_PER_URL)
+        max_urls = API_GATEWAY_LIMIT // INTEGRATIONS_PER_URL # Round down. Can't stuff an extra if no space.
         # if len(urls) > max_urls:
         #     print(f"Error: Number of URLs ({len(urls)}) exceeded max URLs ({max_urls}).")
         #     sys.exit(1)

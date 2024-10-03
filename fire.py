@@ -525,6 +525,8 @@ def prune_urls(urls, fp, unique=False):
     if len(urls) == 0:
         print('Nothing to do.')
         sys.exit(0)
+    
+    return urls
 
 
 def main():
@@ -542,12 +544,12 @@ def main():
         print(f'Listing unique API IDs...')
         result = fp.list_api_ids()
 
-    elif args.command == 'create':
-        urls = [args.url]
-        urls = prune_urls(urls, fp, args.unique)
-        result = fp.create_api(urls)
+    # elif args.command == 'create':
+    #     urls = [args.url]
+    #     urls = prune_urls(urls, fp, args.unique)
+    #     result = fp.create_api(urls)
 
-    elif args.command == 'create-bulk':
+    elif args.command == 'create':
         urls = [args.url]
         if (path := Path(args.url)).is_file():
             print('Found file:', args.url)
@@ -557,8 +559,9 @@ def main():
         urls = prune_urls(urls, fp, args.unique)
 
         # Check number of URLs.
-        API_GATEWAY_LIMIT = 300
-        INTEGRATIONS_PER_URL = 3 # This is the number of integration we define per url.
+        API_GATEWAY_LIMIT = 300 - 2
+        # ...minus 2 due to / and /s/
+        INTEGRATIONS_PER_URL = 4 # This is the number of integration we define per url.
         from math import ceil # Lazy
         num_urls = len(urls)
         max_urls = ceil(API_GATEWAY_LIMIT / INTEGRATIONS_PER_URL)
@@ -567,8 +570,9 @@ def main():
         #     sys.exit(1)
         num_batches = ceil(num_urls / max_urls)
 
-        print(f'Preparing to create {num_batches} batches...')
-        sleep(3)
+        if num_batches > 1:
+            print(f'Preparing to create {num_batches} batches...')
+            sleep(3)
 
         # Auto-batch URLs.
         for batch_i in range(num_batches):

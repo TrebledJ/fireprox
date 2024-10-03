@@ -14,6 +14,9 @@ from time import sleep
 from math import ceil
 
 
+DELETE_API_RATE_LIMIT_S = 30
+
+
 def get_unique_domains(urls):
     domains = set()
     for url in urls:
@@ -346,56 +349,69 @@ class FireProx(object):
         else:
             self.error(f'Unable to update, no valid resource for {api_id}')
 
-    def delete_api(self, api_id):
-        if not api_id:
+    def delete_api(self, api_id_to_delete=None):
+        if not api_id_to_delete:
             self.error('Please provide a valid API ID')
-        items = self.list_api_ids(api_id)
-        for item in items:
-            item_api_id = item['id']
-            if item_api_id == api_id:
+
+        for _, api_id, _ in self.get_api_ids():
+            if api_id_to_delete == api_id:
                 response = self.client.delete_rest_api(
                     restApiId=api_id
                 )
                 return True
+        
         return False
+        
+    def delete_all(self):
+        items = [*self.get_api_ids()]
+        num_ids = len(items)
+
+        if num_ids == 0:
+            print('Nothing to delete.')
+            return False
+
+        print('This may take a while...')
+        seconds = DELETE_API_RATE_LIMIT_S * num_ids
+        m, s = seconds // 60, seconds % 60
+        print(f'Estimated time: {m}min {s}s')
+
+        for i, (_, api_id, _) in enumerate(items):
+            response = self.client.delete_rest_api(
+                restApiId=api_id
+            )
+
+            print(f'Deleting {api_id} => Success!')
+
+            # Delete quota is 1 per 30s.
+            if i + 1 < num_ids:
+                sleep(DELETE_API_RATE_LIMIT_S + 0.5)
     
-    def list_api(self, deleted_api_id=None):
+        return True
+
+    
+    def list_api(self):
+        for created_dt, api_id, name in self.get_api_ids():
+            if self.api_id is not None and self.api_id != api_id:
+                # If api_id is provided and doesn't match... skip.
+                continue
+
+            target_urls_and_subdir = self.get_integrations(api_id)
+            url_base = f'https://{api_id}.execute-api.{self.region}.amazonaws.com/fireprox/'
+            for proxy_url, subdir in target_urls_and_subdir:
+                url = url_base + subdir + '/'
+                print(f'[{created_dt}] ({api_id}) {name}: {url} => {proxy_url}')
+
+    def get_api_ids(self):
         response = self.client.get_rest_apis()
         for item in response['items']:
-            try:
-                api_id = item['id']
-                if self.api_id is not None and self.api_id != api_id:
-                    # If api_id is provided and doesn't match... skip.
-                    continue
+            created_dt = item['createdDate']
+            api_id = item['id']
+            name = item['name']
+            yield (created_dt, api_id, name)
 
-                if api_id == deleted_api_id:
-                    continue
-
-                created_dt = item['createdDate']
-                name = item['name']
-                target_urls_and_subdir = self.get_integrations(api_id)
-                url_base = f'https://{api_id}.execute-api.{self.region}.amazonaws.com/fireprox/'
-                for proxy_url, subdir in target_urls_and_subdir:
-                    url = url_base + subdir + '/'
-                    print(f'[{created_dt}] ({api_id}) {name}: {url} => {proxy_url}')
-            except Exception as e:
-                print(f'[WARN] Skipped listing API. Reason: {e}')
-                pass
-
-    def list_api_ids(self, deleted_api_id=None):
-        response = self.client.get_rest_apis()
-        for item in response['items']:
-            try:
-                api_id = item['id']
-                if not api_id == deleted_api_id:
-                    created_dt = item['createdDate']
-                    name = item['name']
-                    print(f'[{created_dt}] ({api_id}) {name}')
-            except Exception as e:
-                print(f'[WARNING] Skipped listing API. Reason: {e}')
-                pass
-
-        return response['items']
+    def list_api_ids(self):
+        for created_dt, api_id, name in self.get_api_ids():
+            print(f'[{created_dt}] ({api_id}) {name}')
 
     def store_api(self, api_id, name, created_dt, version_dt, urls, _words,
                   resource_id, proxy_url):
@@ -489,7 +505,7 @@ def parse_arguments() -> Tuple[argparse.Namespace, List[str], str]:
     parser.add_argument('--region',
                         help='AWS Region', type=str, default=None)
     parser.add_argument('--command',
-                        help='Commands: list, list-id, create-bulk, create, delete, update', type=str, default=None)
+                        help='Commands: list, list-id, create, delete, delete-all, update', type=str, default=None)
     parser.add_argument('--api_id',
                         help='API ID', type=str, required=False)
     parser.add_argument('--unique',
@@ -612,6 +628,11 @@ def main():
         result = fp.delete_api(fp.api_id)
         success = 'Success!' if result else 'Failed!'
         print(f'Deleting {fp.api_id} => {success}')
+
+    elif args.command == 'delete-all':
+        result = fp.delete_all()
+        if result:
+            print(f'Deleted all APIs!')
 
     elif args.command == 'update':
         print(f'Updating {fp.api_id} => {args.url}...')

@@ -478,7 +478,7 @@ def parse_arguments() -> Tuple[argparse.Namespace, List[str], str]:
     parser.add_argument('--region',
                         help='AWS Region', type=str, default=None)
     parser.add_argument('--command',
-                        help='Commands: serve, list, list-id, create-bulk, create, delete, update', type=str, default=None)
+                        help='Commands: list, list-id, create-bulk, create, delete, update', type=str, default=None)
     parser.add_argument('--api_id',
                         help='API ID', type=str, required=False)
     parser.add_argument('--unique',
@@ -590,14 +590,14 @@ def main():
         success = 'Success!' if result else 'Failed!'
         print(f'API Update Complete: {success}')
 
-    elif args.command == 'serve':
-        print(f'Fetching proxy mappings...')
-        url_pairs = fp.get_url_pairs()
+    # elif args.command == 'serve':
+    #     print(f'Fetching proxy mappings...')
+    #     url_pairs = fp.get_url_pairs()
         
-        print(f'Serving proxy server...')
-        from server import Server
-        svr = Server(rest_args, url_pairs)
-        svr.run()
+    #     print(f'Serving proxy server...')
+    #     from server import Server
+    #     svr = Server(rest_args, url_pairs)
+    #     svr.run()
 
     else:
         print(f'[ERROR] Unsupported command: {args.command}\n')

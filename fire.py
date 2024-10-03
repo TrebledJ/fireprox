@@ -412,7 +412,8 @@ class FireProx(object):
         """Get the unique subdirectories and their ID, e.g. http://.../fireprox/foo, http://.../fireprox/bar."""
         if not api_id:
             self.error('Please provide a valid API ID')
-        response = self.client.get_resources(restApiId=api_id)
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/apigateway/client/get_resources.html#get-resources
+        response = self.client.get_resources(restApiId=api_id, limit=500)
         resources = []
         items = response['items']
         seen = set()

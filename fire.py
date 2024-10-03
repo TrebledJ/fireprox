@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
-from multiprocessing import Pool
+# from multiprocessing import Pool
 from pathlib import Path
-import shutil
-import tldextract
 import boto3
 import os
 import sys
 import datetime
-import tzlocal
 import argparse
-import json
 import configparser
-from typing import Tuple, Callable
+from typing import Tuple, List
+import words
+from urllib.parse import urlparse
+from time import sleep
+
+
+def get_unique_domains(urls):
+    domains = set()
+    for url in urls:
+        u = urlparse(url)
+        domains.add(u.scheme + "://" + u.netloc)
+    return list(domains)
 
 
 class FireProx(object):
@@ -23,7 +30,7 @@ class FireProx(object):
         self.region = arguments.region
         self.command = arguments.command
         self.api_id = arguments.api_id
-        self.url = arguments.url
+        # self.url = arguments.url
         self.api_list = []
         self.client = None
         self.help = help_text
@@ -126,15 +133,134 @@ class FireProx(object):
         print(self.help)
         sys.exit(error)
 
-    def get_template(self):
-        url = self.url
+    @staticmethod
+    def _clean_url(url):
         if url[-1] == '/':
             url = url[:-1]
+        return url
 
-        title = 'fireprox_{}'.format(
-            tldextract.extract(url).domain
-        )
+
+    def get_template(self, urls):
+        urls = [FireProx._clean_url(u) for u in urls]
+
+        title = 'fireprox_{}'.format(words.get_random_word())
         version_date = f'{datetime.datetime.now():%Y-%m-%dT%XZ}'
+        path = '''
+        "/{{word}}": {
+            "x-amazon-apigateway-any-method": {
+                "parameters": [
+                    {
+                        "name": "proxy",
+                        "in": "path",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "name": "X-My-X-Forwarded-For",
+                        "in": "header",
+                        "required": false,
+                        "type": "string"
+                    }
+                ],
+                "responses": {},
+                "x-amazon-apigateway-integration": {
+                    "uri": "{{url}}/",
+                    "responses": {
+                        "default": {
+                            "statusCode": "200"
+                        }
+                    },
+                    "requestParameters": {
+                        "integration.request.path.proxy": "method.request.path.proxy",
+                        "integration.request.header.X-Forwarded-For": "method.request.header.X-My-X-Forwarded-For"
+                    },
+                    "passthroughBehavior": "when_no_match",
+                    "httpMethod": "ANY",
+                    "cacheNamespace": "19gna3",
+                    "cacheKeyParameters": [
+                        "method.request.path.proxy"
+                    ],
+                    "type": "http_proxy"
+                }
+            }
+        },
+        "/-{{word}}{proxy+}/": {
+            "x-amazon-apigateway-any-method": {
+                "parameters": [
+                    {
+                        "name": "proxy",
+                        "in": "path",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "name": "X-My-X-Forwarded-For",
+                        "in": "header",
+                        "required": false,
+                        "type": "string"
+                    }
+                ],
+                "responses": {},
+                "x-amazon-apigateway-integration": {
+                    "uri": "{{url}}/{proxy}/",
+                    "responses": {
+                        "default": {
+                            "statusCode": "200"
+                        }
+                    },
+                    "requestParameters": {
+                        "integration.request.path.proxy": "method.request.path.proxy",
+                        "integration.request.header.X-Forwarded-For": "method.request.header.X-My-X-Forwarded-For"
+                    },
+                    "passthroughBehavior": "when_no_match",
+                    "httpMethod": "ANY",
+                    "cacheNamespace": "19gna3",
+                    "cacheKeyParameters": [
+                        "method.request.path.proxy"
+                    ],
+                    "type": "http_proxy"
+                }
+            }
+        },
+        "/{{word}}{proxy+}": {
+            "x-amazon-apigateway-any-method": {
+                "parameters": [
+                    {
+                        "name": "proxy",
+                        "in": "path",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "name": "X-My-X-Forwarded-For",
+                        "in": "header",
+                        "required": false,
+                        "type": "string"
+                    }
+                ],
+                "responses": {},
+                "x-amazon-apigateway-integration": {
+                    "uri": "{{url}}/{proxy}",
+                    "responses": {
+                        "default": {
+                            "statusCode": "200"
+                        }
+                    },
+                    "requestParameters": {
+                        "integration.request.path.proxy": "method.request.path.proxy",
+                        "integration.request.header.X-Forwarded-For": "method.request.header.X-My-X-Forwarded-For"
+                    },
+                    "passthroughBehavior": "when_no_match",
+                    "httpMethod": "ANY",
+                    "cacheNamespace": "19gna3",
+                    "cacheKeyParameters": [
+                        "method.request.path.proxy"
+                    ],
+                    "type": "http_proxy"
+                }
+            }
+        }
+        '''
         template = '''
         {
           "swagger": "2.0",
@@ -147,98 +273,34 @@ class FireProx(object):
             "https"
           ],
           "paths": {
-            "/": {
-              "x-amazon-apigateway-any-method": {
-                "parameters": [
-                  {
-                    "name": "proxy",
-                    "in": "path",
-                    "required": true,
-                    "type": "string"
-                  },
-                  {
-                    "name": "X-My-X-Forwarded-For",
-                    "in": "header",
-                    "required": false,
-                    "type": "string"
-                  }
-                ],
-                "responses": {},
-                "x-amazon-apigateway-integration": {
-                  "uri": "{{url}}/",
-                  "responses": {
-                    "default": {
-                      "statusCode": "200"
-                    }
-                  },
-                  "requestParameters": {
-                    "integration.request.path.proxy": "method.request.path.proxy",
-                    "integration.request.header.X-Forwarded-For": "method.request.header.X-My-X-Forwarded-For"
-                  },
-                  "passthroughBehavior": "when_no_match",
-                  "httpMethod": "ANY",
-                  "cacheNamespace": "irx7tm",
-                  "cacheKeyParameters": [
-                    "method.request.path.proxy"
-                  ],
-                  "type": "http_proxy"
-                }
-              }
-            },
-            "/{proxy+}": {
-              "x-amazon-apigateway-any-method": {
-                "parameters": [
-                  {
-                    "name": "proxy",
-                    "in": "path",
-                    "required": true,
-                    "type": "string"
-                  },
-                  {
-                    "name": "X-My-X-Forwarded-For",
-                    "in": "header",
-                    "required": false,
-                    "type": "string"
-                  }
-                ],
-                "responses": {},
-                "x-amazon-apigateway-integration": {
-                  "uri": "{{url}}/{proxy}",
-                  "responses": {
-                    "default": {
-                      "statusCode": "200"
-                    }
-                  },
-                  "requestParameters": {
-                    "integration.request.path.proxy": "method.request.path.proxy",
-                    "integration.request.header.X-Forwarded-For": "method.request.header.X-My-X-Forwarded-For"
-                  },
-                  "passthroughBehavior": "when_no_match",
-                  "httpMethod": "ANY",
-                  "cacheNamespace": "19gna3",
-                  "cacheKeyParameters": [
-                    "method.request.path.proxy"
-                  ],
-                  "type": "http_proxy"
-                }
-              }
-            }
+            {{paths}}
           }
         }
         '''
-        template = template.replace('{{url}}', url)
+
+        paths = []
+        ws = words.get_random_words(len(urls))
+        for url, word in zip(urls, ws):
+            paths += [
+                path.replace('{{url}}', url).replace('{{word}}', word + '/')
+            ]
+
+        template = template.replace('{{paths}}', ',\n'.join(paths))
         template = template.replace('{{title}}', title)
         template = template.replace('{{version_date}}', version_date)
 
-        return str.encode(template)
+        return str.encode(template), ws
 
-    def create_api(self, url):
-        if not url:
+    def create_api(self, urls):
+        if not urls:
             self.error('Please provide a valid URL end-point')
 
-        print(f'Creating => {url}...')
+        if len(urls) > 1:
+            print(f'Creating => {len(urls)} urls...')
+        else:
+            print(f'Creating => {urls[0]}...')
 
-        template = self.get_template()
+        template, _words = self.get_template(urls)
         response = self.client.import_rest_api(
             parameters={
                 'endpointConfigurationTypes': 'REGIONAL'
@@ -251,11 +313,12 @@ class FireProx(object):
             response['name'],
             response['createdDate'],
             response['version'],
-            url,
+            urls,
+            _words,
             resource_id,
             proxy_url
         )
-
+    
     def update_api(self, api_id, url):
         if not any([api_id, url]):
             self.error('Please provide a valid API ID and URL end-point')
@@ -301,21 +364,35 @@ class FireProx(object):
             try:
                 created_dt = item['createdDate']
                 api_id = item['id']
-                name = item['name']
-                proxy_url = self.get_integration(api_id).replace('{proxy}', '')
-                url = f'https://{api_id}.execute-api.{self.region}.amazonaws.com/fireprox/'
                 if not api_id == deleted_api_id:
-                    print(f'[{created_dt}] ({api_id}) {name}: {url} => {proxy_url}')
+                    name = item['name']
+                    target_urls_and_subdir = self.get_integrations(api_id)
+                    url_base = f'https://{api_id}.execute-api.{self.region}.amazonaws.com/fireprox/'
+                    for proxy_url, subdir in target_urls_and_subdir:
+                        url = url_base + subdir + '/'
+                        print(f'[{created_dt}] ({api_id}) {name}: {url} => {proxy_url}')
+            except:
+                pass
+
+    def list_api_ids(self):
+        response = self.client.get_rest_apis()
+        for item in response['items']:
+            try:
+                created_dt = item['createdDate']
+                api_id = item['id']
+                name = item['name']
+                print(f'[{created_dt}] ({api_id}) {name}')
             except:
                 pass
 
         return response['items']
 
-    def store_api(self, api_id, name, created_dt, version_dt, url,
+    def store_api(self, api_id, name, created_dt, version_dt, urls, _words,
                   resource_id, proxy_url):
-        print(
-            f'[{created_dt}] ({api_id}) {name} => {proxy_url} ({url})'
-        )
+        for url, word in zip(urls, _words):
+            print(
+                f'[{created_dt}] ({api_id}) {name} => {proxy_url}{word}/ ({url})'
+            )
 
     def create_deployment(self, api_id):
         if not api_id:
@@ -331,31 +408,60 @@ class FireProx(object):
         return (resource_id,
                 f'https://{api_id}.execute-api.{self.region}.amazonaws.com/fireprox/')
 
-    def get_resource(self, api_id):
+    def get_resources(self, api_id):
+        """Get the unique subdirectories and their ID, e.g. http://.../fireprox/foo, http://.../fireprox/bar."""
         if not api_id:
             self.error('Please provide a valid API ID')
         response = self.client.get_resources(restApiId=api_id)
+        resources = []
         items = response['items']
+        seen = set()
         for item in items:
             item_id = item['id']
             item_path = item['path']
-            if item_path == '/{proxy+}':
-                return item_id
-        return None
+            
+            suffix = '/{proxy+}'
+            if item_path.endswith(suffix) and not item_path.startswith('/-'):
+                resources.append((item_id, item_path[:-len(suffix)]))
+        return resources
 
-    def get_integration(self, api_id):
+    def get_integrations(self, api_id):
+        """Gets a list of target (destination) URLs and subdirectories associated with an API."""
         if not api_id:
             self.error('Please provide a valid API ID')
-        resource_id = self.get_resource(api_id)
-        response = self.client.get_integration(
-            restApiId=api_id,
-            resourceId=resource_id,
-            httpMethod='ANY'
-        )
-        return response['uri']
+        ress = self.get_resources(api_id)
+        if len(ress) == 0:
+            self.error('Could not find resources in the API')
+
+        integrations = []
+        for resource_id, resource_path in ress:
+            response = self.client.get_integration(
+                restApiId=api_id,
+                resourceId=resource_id,
+                httpMethod='ANY'
+            )
+            subdir = resource_path[1:]
+            integrations.append((response['uri'].replace('{proxy}', ''), subdir))
+        return integrations
+    
+    def get_url_pairs(self):
+        """Get pairs of (proxy_urls, target_urls)."""
+        pairs = []
+        response = self.client.get_rest_apis()
+        for item in response['items']:
+            # created_dt = item['createdDate']
+            api_id = item['id']
+            url_base = f'https://{api_id}.execute-api.{self.region}.amazonaws.com/fireprox/'
+
+            target_urls_and_subdir = self.get_integrations(api_id)
+            for target_url, subdir in target_urls_and_subdir:
+                proxy_url = url_base + subdir + '/'
+                pairs.append((proxy_url, target_url))
+        
+        return pairs
 
 
-def parse_arguments() -> Tuple[argparse.Namespace, str]:
+def parse_arguments() -> Tuple[argparse.Namespace, List[str], str]:
     """Parse command line arguments and return namespace
 
     :return: Namespace for arguments and help text as a tuple
@@ -372,12 +478,52 @@ def parse_arguments() -> Tuple[argparse.Namespace, str]:
     parser.add_argument('--region',
                         help='AWS Region', type=str, default=None)
     parser.add_argument('--command',
-                        help='Commands: list, create, delete, update', type=str, default=None)
+                        help='Commands: serve, list, list-id, create-bulk, create, delete, update', type=str, default=None)
     parser.add_argument('--api_id',
                         help='API ID', type=str, required=False)
+    parser.add_argument('--unique',
+                        help='Avoid creating duplicate proxies.', action='store_true', required=False)
     parser.add_argument('--url',
-                        help='URL end-point', type=str, required=False)
-    return parser.parse_args(), parser.format_help()
+                        help='URL end-point or file containing URLs per line', type=str, required=False)
+    args, rest = parser.parse_known_args()
+    return args, rest, parser.format_help()
+
+
+def prune_urls(urls, fp, unique=False):
+    print('NOTE: Currently this only adds domains as targets, not the full path.')
+    print('For example, creating a proxy to http://example.com/a/b/c will only create a proxy to http://example.com.')
+    print()
+
+    # Get unique URL domains.
+    oldlen = len(urls)
+    urls = get_unique_domains(urls)
+    newlen = len(urls)
+
+    if oldlen != newlen:
+        print(f'Merged {oldlen} urls into {newlen} domains.')
+
+    # Remove existing domains.
+    if unique:
+        url_pairs = fp.get_url_pairs()
+        existing_set = set()
+        for _, target_url in url_pairs:
+            u = urlparse(target_url)
+            existing_set.add(u.netloc)
+        
+        new_urls = []
+        for url in urls:
+            u = urlparse(url)
+            if u.netloc not in existing_set:
+                new_urls.append(url)
+        
+        if len(urls) != len(new_urls):
+            print(f'Pruned {len(urls) - len(new_urls)} duplicates. => {len(new_urls)} domains.')
+        
+        urls = new_urls
+
+    if len(urls) == 0:
+        print('Nothing to do.')
+        sys.exit(0)
 
 
 def main():
@@ -385,14 +531,53 @@ def main():
 
     :return:
     """
-    args, help_text = parse_arguments()
+    args, rest_args, help_text = parse_arguments()
     fp = FireProx(args, help_text)
     if args.command == 'list':
         print(f'Listing API\'s...')
         result = fp.list_api()
 
+    elif args.command == 'list-id':
+        print(f'Listing unique API IDs...')
+        result = fp.list_api_ids()
+
     elif args.command == 'create':
-        result = fp.create_api(fp.url)
+        urls = [args.url]
+        urls = prune_urls(urls, fp, args.unique)
+        result = fp.create_api(urls)
+
+    elif args.command == 'create-bulk':
+        urls = [args.url]
+        if (path := Path(args.url)).is_file():
+            print('Found file:', args.url)
+            urls = path.read_text().splitlines()
+            print('Parsed', len(urls), 'urls')
+
+        urls = prune_urls(urls, fp, args.unique)
+
+        # Check number of URLs.
+        API_GATEWAY_LIMIT = 300
+        INTEGRATIONS_PER_URL = 3 # This is the number of integration we define per url.
+        from math import ceil # Lazy
+        num_urls = len(urls)
+        max_urls = ceil(API_GATEWAY_LIMIT / INTEGRATIONS_PER_URL)
+        # if len(urls) > max_urls:
+        #     print(f"Error: Number of URLs ({len(urls)}) exceeded max URLs ({max_urls}).")
+        #     sys.exit(1)
+        num_batches = ceil(num_urls / max_urls)
+
+        print(f'Preparing to create {num_batches} batches...')
+        sleep(3)
+
+        # Auto-batch URLs.
+        for batch_i in range(num_batches):
+            batch = urls[max_urls * (batch_i) : max_urls * (batch_i + 1)]
+            print(f'\nBatch {batch_i+1}: {len(batch)} URLs')
+            result = fp.create_api(batch)
+            
+            # API Limits: 1 CreateRestApi call every 3 seconds. https://docs.aws.amazon.com/apigateway/latest/developerguide/limits.html#api-gateway-execution-service-limits-table
+            sleep(3.5)
+
 
     elif args.command == 'delete':
         result = fp.delete_api(fp.api_id)
@@ -400,10 +585,19 @@ def main():
         print(f'Deleting {fp.api_id} => {success}')
 
     elif args.command == 'update':
-        print(f'Updating {fp.api_id} => {fp.url}...')
-        result = fp.update_api(fp.api_id, fp.url)
+        print(f'Updating {fp.api_id} => {args.url}...')
+        result = fp.update_api(fp.api_id, args.url)
         success = 'Success!' if result else 'Failed!'
         print(f'API Update Complete: {success}')
+
+    elif args.command == 'serve':
+        print(f'Fetching proxy mappings...')
+        url_pairs = fp.get_url_pairs()
+        
+        print(f'Serving proxy server...')
+        from server import Server
+        svr = Server(rest_args, url_pairs)
+        svr.run()
 
     else:
         print(f'[ERROR] Unsupported command: {args.command}\n')

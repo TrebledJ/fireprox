@@ -11,6 +11,7 @@ from typing import Tuple, List
 import words
 from urllib.parse import urlparse
 from time import sleep
+from math import ceil
 
 
 def get_unique_domains(urls):
@@ -184,7 +185,7 @@ class FireProx(object):
                 }
             }
         },
-        "/-{{word}}{proxy+}/": {
+        "/s/{{word}}{proxy+}/": {
             "x-amazon-apigateway-any-method": {
                 "parameters": [
                     {
@@ -348,7 +349,7 @@ class FireProx(object):
     def delete_api(self, api_id):
         if not api_id:
             self.error('Please provide a valid API ID')
-        items = self.list_api(api_id)
+        items = self.list_api_ids(api_id)
         for item in items:
             item_api_id = item['id']
             if item_api_id == api_id:
@@ -357,32 +358,41 @@ class FireProx(object):
                 )
                 return True
         return False
-
+    
     def list_api(self, deleted_api_id=None):
         response = self.client.get_rest_apis()
         for item in response['items']:
             try:
-                created_dt = item['createdDate']
                 api_id = item['id']
-                if not api_id == deleted_api_id:
-                    name = item['name']
-                    target_urls_and_subdir = self.get_integrations(api_id)
-                    url_base = f'https://{api_id}.execute-api.{self.region}.amazonaws.com/fireprox/'
-                    for proxy_url, subdir in target_urls_and_subdir:
-                        url = url_base + subdir + '/'
-                        print(f'[{created_dt}] ({api_id}) {name}: {url} => {proxy_url}')
-            except:
+                if self.api_id is not None and self.api_id != api_id:
+                    # If api_id is provided and doesn't match... skip.
+                    continue
+
+                if api_id == deleted_api_id:
+                    continue
+
+                created_dt = item['createdDate']
+                name = item['name']
+                target_urls_and_subdir = self.get_integrations(api_id)
+                url_base = f'https://{api_id}.execute-api.{self.region}.amazonaws.com/fireprox/'
+                for proxy_url, subdir in target_urls_and_subdir:
+                    url = url_base + subdir + '/'
+                    print(f'[{created_dt}] ({api_id}) {name}: {url} => {proxy_url}')
+            except Exception as e:
+                print(f'[WARN] Skipped listing API. Reason: {e}')
                 pass
 
-    def list_api_ids(self):
+    def list_api_ids(self, deleted_api_id=None):
         response = self.client.get_rest_apis()
         for item in response['items']:
             try:
-                created_dt = item['createdDate']
                 api_id = item['id']
-                name = item['name']
-                print(f'[{created_dt}] ({api_id}) {name}')
-            except:
+                if not api_id == deleted_api_id:
+                    created_dt = item['createdDate']
+                    name = item['name']
+                    print(f'[{created_dt}] ({api_id}) {name}')
+            except Exception as e:
+                print(f'[WARNING] Skipped listing API. Reason: {e}')
                 pass
 
         return response['items']
@@ -416,13 +426,13 @@ class FireProx(object):
         response = self.client.get_resources(restApiId=api_id, limit=500)
         resources = []
         items = response['items']
-        seen = set()
+        # seen = set()
         for item in items:
             item_id = item['id']
             item_path = item['path']
             
             suffix = '/{proxy+}'
-            if item_path.endswith(suffix) and not item_path.startswith('/-'):
+            if item_path.endswith(suffix) and not item_path.startswith('/s/'):
                 resources.append((item_id, item_path[:-len(suffix)]))
         return resources
 
@@ -495,6 +505,20 @@ def prune_urls(urls, fp, unique=False):
     print('For example, creating a proxy to http://example.com/a/b/c will only create a proxy to http://example.com.')
     print()
 
+    # Check scheme ://.
+    new_urls = []
+    fix_count = 0
+    for url in urls:
+        if '://' not in url:
+            fix_count += 1
+            new_urls.append('http://' + url)
+        else:
+            new_urls.append(url)
+    
+    if fix_count > 0:
+        print('[WARN] Some URLs did not have a scheme. We added http:// by default.')
+    urls = new_urls
+
     # Get unique URL domains.
     oldlen = len(urls)
     urls = get_unique_domains(urls)
@@ -562,7 +586,7 @@ def main():
         API_GATEWAY_LIMIT = 300 - 2
         # ...minus 2 due to / and /s/
         INTEGRATIONS_PER_URL = 4 # This is the number of integration we define per url.
-        from math import ceil # Lazy
+        
         num_urls = len(urls)
         max_urls = ceil(API_GATEWAY_LIMIT / INTEGRATIONS_PER_URL)
         # if len(urls) > max_urls:

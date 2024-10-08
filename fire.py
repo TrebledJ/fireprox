@@ -8,7 +8,12 @@ import datetime
 import argparse
 import configparser
 from typing import Tuple, List
-import words
+
+try:
+    import words
+except:
+    pass
+
 from urllib.parse import urlparse
 from time import sleep
 from math import ceil
@@ -46,8 +51,8 @@ class FireProx(object):
         if not self.load_creds():
             self.error('Unable to load AWS credentials')
 
-        if not self.command:
-            self.error('Please provide a valid command')
+        # if not self.command:
+        #     self.error('Please provide a valid command')
 
     def __str__(self):
         return 'FireProx()'
@@ -143,14 +148,13 @@ class FireProx(object):
             url = url[:-1]
         return url
 
-
     def get_template(self, urls):
         urls = [FireProx._clean_url(u) for u in urls]
-
+        
         title = 'fireprox_{}'.format(words.get_random_word())
         version_date = f'{datetime.datetime.now():%Y-%m-%dT%XZ}'
         path = '''
-        "/{{word}}": {
+        "/s-{{word}}": {
             "x-amazon-apigateway-any-method": {
                 "parameters": [
                     {
@@ -188,7 +192,7 @@ class FireProx(object):
                 }
             }
         },
-        "/s/{{word}}{proxy+}/": {
+        "/s-{{word}}{proxy+}/": {
             "x-amazon-apigateway-any-method": {
                 "parameters": [
                     {
@@ -207,6 +211,44 @@ class FireProx(object):
                 "responses": {},
                 "x-amazon-apigateway-integration": {
                     "uri": "{{url}}/{proxy}/",
+                    "responses": {
+                        "default": {
+                            "statusCode": "200"
+                        }
+                    },
+                    "requestParameters": {
+                        "integration.request.path.proxy": "method.request.path.proxy",
+                        "integration.request.header.X-Forwarded-For": "method.request.header.X-My-X-Forwarded-For"
+                    },
+                    "passthroughBehavior": "when_no_match",
+                    "httpMethod": "ANY",
+                    "cacheNamespace": "19gna3",
+                    "cacheKeyParameters": [
+                        "method.request.path.proxy"
+                    ],
+                    "type": "http_proxy"
+                }
+            }
+        },
+        "/{{word}}": {
+            "x-amazon-apigateway-any-method": {
+                "parameters": [
+                    {
+                        "name": "proxy",
+                        "in": "path",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "name": "X-My-X-Forwarded-For",
+                        "in": "header",
+                        "required": false,
+                        "type": "string"
+                    }
+                ],
+                "responses": {},
+                "x-amazon-apigateway-integration": {
+                    "uri": "{{url}}",
                     "responses": {
                         "default": {
                             "statusCode": "200"
@@ -369,11 +411,12 @@ class FireProx(object):
         if num_ids == 0:
             print('Nothing to delete.')
             return False
-
-        print('This may take a while...')
-        seconds = DELETE_API_RATE_LIMIT_S * num_ids
-        m, s = seconds // 60, seconds % 60
-        print(f'Estimated time: {m}min {s}s')
+        
+        if num_ids > 1:
+            print('This may take a while...')
+            seconds = DELETE_API_RATE_LIMIT_S * (num_ids - 1)
+            m, s = seconds // 60, seconds % 60
+            print(f'Estimated time: {m}min {s}s')
 
         for i, (_, api_id, _) in enumerate(items):
             response = self.client.delete_rest_api(
@@ -448,7 +491,7 @@ class FireProx(object):
             item_path = item['path']
             
             suffix = '/{proxy+}'
-            if item_path.endswith(suffix) and not item_path.startswith('/s/'):
+            if item_path.endswith(suffix) and not item_path.startswith('/s-'):
                 resources.append((item_id, item_path[:-len(suffix)]))
         return resources
 
@@ -471,13 +514,24 @@ class FireProx(object):
             integrations.append((response['uri'].replace('{proxy}', ''), subdir))
         return integrations
     
-    def get_url_pairs(self):
+    def get_api_meta(self):
+        """Get the created date and name of all API IDs without requesting for individual integrations."""
+        data = [(created_dt, api_id, name) for created_dt, api_id, name in self.get_api_ids()]
+        return data
+        
+    
+    def get_url_pairs(self, prefetched_metadata = None):
         """Get pairs of (proxy_urls, target_urls)."""
+
+        if prefetched_metadata is None:
+            items = self.get_api_ids()
+        else:
+            items = prefetched_metadata
+        
         pairs = []
-        response = self.client.get_rest_apis()
-        for item in response['items']:
+
+        for _, api_id, _ in items:
             # created_dt = item['createdDate']
-            api_id = item['id']
             url_base = f'https://{api_id}.execute-api.{self.region}.amazonaws.com/fireprox/'
 
             target_urls_and_subdir = self.get_integrations(api_id)
@@ -590,6 +644,12 @@ def main():
     #     result = fp.create_api(urls)
 
     elif args.command == 'create':
+        try:
+            words.get_random_word
+        except NameError:
+            print("No module 'words' was found. Did you forget to copy words.py?")
+            sys.exit(1)
+
         urls = [args.url]
         if (path := Path(args.url)).is_file():
             print('Found file:', args.url)
@@ -600,8 +660,8 @@ def main():
 
         # Check number of URLs.
         API_GATEWAY_LIMIT = 300 - 2
-        # ...minus 2 due to / and /s/
-        INTEGRATIONS_PER_URL = 4 # This is the number of integration we define per url.
+        # ...minus 2 due to / 
+        INTEGRATIONS_PER_URL = 5 # This is the number of integration we define per url.
         
         num_urls = len(urls)
         max_urls = API_GATEWAY_LIMIT // INTEGRATIONS_PER_URL # Round down. Can't stuff an extra if no space.

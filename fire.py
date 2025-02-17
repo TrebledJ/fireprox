@@ -576,18 +576,39 @@ def prune_urls(urls, fp, unique=False):
     print()
 
     # Check scheme ://.
-    new_urls = []
-    fix_count = 0
+    # new_urls = []
+    no_scheme_count = 0
     for url in urls:
         if '://' not in url:
-            fix_count += 1
-            new_urls.append('http://' + url)
-        else:
-            new_urls.append(url)
+            no_scheme_count += 1
+            # new_urls.append('http://' + url)
+        # else:
+            # new_urls.append(url)
     
-    if fix_count > 0:
-        print('[WARN] Some URLs did not have a scheme. We added http:// by default.')
-    urls = new_urls
+    if no_scheme_count > 0:
+        print('[ERR]', no_scheme_count, 'URL(s) did not have a scheme. Please specify http:// or https://.')
+        sys.exit(1)
+    # urls = new_urls
+
+    bad_port_urls = []
+    for url in urls:
+        u = urlparse(url)
+        if ':' in u.netloc:
+            _, port = u.netloc.split(':')
+            p = int(port)
+            if p <= 1024 and p not in {80, 443}:
+                bad_port_urls.append(url)
+                
+    if bad_port_urls:
+        print('[WARN] AWS API Gateway require ports to be 80, 443, or above 1024.')
+        print('Offending URLs:')
+        if len(bad_port_urls) > 8:
+            print('\t' + '\n\t'.join(bad_port_urls[:8]))
+            print(f'\t + {len(bad_port_urls) - 8} more URLs')
+        else:
+            print('\t' + '\n\t'.join(bad_port_urls))
+
+        sys.exit(1)
 
     # Get unique URL domains.
     oldlen = len(urls)

@@ -95,7 +95,8 @@ class FireProx(object):
             if config_profile_section not in config:
                 print(f'Please create a section for {self.profile_name} in your ~/.aws/config file')
                 return False
-            self.region = config[config_profile_section].get('region', 'us-east-1')
+            if self.region is None: # Don't override region if already specified.
+                self.region = config[config_profile_section].get('region', 'us-east-1')
             try:
                 self.client = boto3.session.Session(profile_name=self.profile_name,
                         region_name=self.region).client('apigateway')
@@ -158,15 +159,9 @@ class FireProx(object):
             "x-amazon-apigateway-any-method": {
                 "parameters": [
                     {
-                        "name": "proxy",
-                        "in": "path",
-                        "required": true,
-                        "type": "string"
-                    },
-                    {
                         "name": "X-My-X-Forwarded-For",
                         "in": "header",
-                        "required": false,
+                        "required": true,
                         "type": "string"
                     }
                 ],
@@ -179,15 +174,11 @@ class FireProx(object):
                         }
                     },
                     "requestParameters": {
-                        "integration.request.path.proxy": "method.request.path.proxy",
                         "integration.request.header.X-Forwarded-For": "method.request.header.X-My-X-Forwarded-For"
                     },
                     "passthroughBehavior": "when_no_match",
                     "httpMethod": "ANY",
                     "cacheNamespace": "19gna3",
-                    "cacheKeyParameters": [
-                        "method.request.path.proxy"
-                    ],
                     "type": "http_proxy"
                 }
             }
@@ -204,7 +195,7 @@ class FireProx(object):
                     {
                         "name": "X-My-X-Forwarded-For",
                         "in": "header",
-                        "required": false,
+                        "required": true,
                         "type": "string"
                     }
                 ],
@@ -234,15 +225,9 @@ class FireProx(object):
             "x-amazon-apigateway-any-method": {
                 "parameters": [
                     {
-                        "name": "proxy",
-                        "in": "path",
-                        "required": true,
-                        "type": "string"
-                    },
-                    {
                         "name": "X-My-X-Forwarded-For",
                         "in": "header",
-                        "required": false,
+                        "required": true,
                         "type": "string"
                     }
                 ],
@@ -255,15 +240,11 @@ class FireProx(object):
                         }
                     },
                     "requestParameters": {
-                        "integration.request.path.proxy": "method.request.path.proxy",
                         "integration.request.header.X-Forwarded-For": "method.request.header.X-My-X-Forwarded-For"
                     },
                     "passthroughBehavior": "when_no_match",
                     "httpMethod": "ANY",
                     "cacheNamespace": "19gna3",
-                    "cacheKeyParameters": [
-                        "method.request.path.proxy"
-                    ],
                     "type": "http_proxy"
                 }
             }
@@ -280,7 +261,7 @@ class FireProx(object):
                     {
                         "name": "X-My-X-Forwarded-For",
                         "in": "header",
-                        "required": false,
+                        "required": true,
                         "type": "string"
                     }
                 ],
@@ -669,6 +650,9 @@ def main():
             words.get_random_word
         except NameError:
             print("No module 'words' was found. Did you forget to copy words.py?")
+            sys.exit(1)
+        if args.url is None:
+            print('Expected url or a file containing a list of urls.')
             sys.exit(1)
 
         urls = [args.url]
